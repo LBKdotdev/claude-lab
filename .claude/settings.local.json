@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(notepad:*)",
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(git --version:*)",
+      "Bash(git config:*)",
+      "Bash(gh auth:*)",
+      "Bash(winget install:*)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" auth status)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" api user --jq '.name, .email, .login')",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" api user --jq '.id')",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" repo create claude-lab --public --source=. --remote=origin --push)",
+      "Bash(unzip:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
