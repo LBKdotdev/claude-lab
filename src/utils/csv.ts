@@ -82,9 +82,12 @@ export function csvRowToInventoryItem(
   const year = parseInt(row.year || row.Year || '');
   const crScore = parseInt(row.crScore || row.CRScore || row['CR Score'] || row.Score || '');
 
-  const make = row.make || row.Make || '';
-  const model = row.model || row.Model || '';
-  const title = row.title || row.Title || (year && make && model ? `${year} ${make} ${model}` : '');
+  const make = row.make || row.Make || row.Brand || row.brand || '';
+  const model = row.model || row.Model || row.Description || row.Desc || '';
+
+  // Build title from components, even if some are missing
+  const titleParts = [year, make, model].filter(Boolean);
+  const title = row.title || row.Title || titleParts.join(' ') || '';
 
   return {
     id,
@@ -94,9 +97,10 @@ export function csvRowToInventoryItem(
     year: isNaN(year) ? null : year,
     make,
     model,
+    vin: row.vin || row.VIN || row.Vin || null,
     milesHours: row.milesHours || row['Miles/Hours'] || row['Mi/Hr'] || row.miles || row.hours || null,
     crScore: isNaN(crScore) ? null : crScore,
-    docs: row.docs || row.Docs || row.Documents || row['Vehicle Doc'] || null,
+    docs: row.docs || row.Docs || row.Documents || row['Vehicle Doc'] || row.VehicleDoc || null,
     location: 'San Diego',
     photoUrl: row.photoUrl || row.PhotoUrl || row.photo || null,
     sourceUrl: row.sourceUrl || row.SourceUrl || row.url || '',

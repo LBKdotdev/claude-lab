@@ -1,4 +1,4 @@
-import { ArrowLeft, Calculator, X, Trash2 } from 'lucide-react';
+import { ArrowLeft, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { getFeeDetails } from '../utils/buyFee';
 
@@ -15,7 +15,6 @@ interface Calculation {
 
 export default function BuyFeeCalculatorScreen({ onBack }: BuyFeeCalculatorScreenProps) {
   const [bidInput, setBidInput] = useState('');
-  const [location, setLocation] = useState('San Diego');
   const [result, setResult] = useState<ReturnType<typeof getFeeDetails> | null>(null);
   const [error, setError] = useState('');
   const [recentCalculations, setRecentCalculations] = useState<Calculation[]>([]);
@@ -71,7 +70,6 @@ export default function BuyFeeCalculatorScreen({ onBack }: BuyFeeCalculatorScree
 
   const handleClear = () => {
     setBidInput('');
-    setLocation('San Diego');
     setResult(null);
     setError('');
   };
@@ -105,144 +103,115 @@ export default function BuyFeeCalculatorScreen({ onBack }: BuyFeeCalculatorScree
   }, [result]);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white pb-20">
-      <div className="bg-gray-900 p-4 flex items-center gap-3 border-b border-gray-800">
-        <button onClick={onBack} className="text-gray-400 active:text-white">
-          <ArrowLeft size={24} />
-        </button>
-        <h1 className="text-xl font-bold text-white">Buy Fee Calculator</h1>
+    <div className="min-h-screen bg-surface-900">
+      <div className="bg-surface-800 border-b border-surface-500/30">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <button
+            onClick={onBack}
+            className="w-10 h-10 flex items-center justify-center -ml-2 text-electric"
+          >
+            <ArrowLeft size={24} />
+          </button>
+          <h1 className="text-lg font-semibold text-white">Buy Fee Calculator</h1>
+        </div>
       </div>
 
-      <div className="p-4 space-y-4 max-w-2xl mx-auto">
-        <div className="bg-gray-900 rounded-lg p-5">
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm text-gray-400 block mb-2">Bid Price *</label>
-              <input
-                type="text"
-                value={bidInput}
-                onChange={(e) => setBidInput(e.target.value)}
-                className="w-full bg-gray-800 text-white text-lg px-4 py-3 rounded-lg border border-gray-700 focus:border-lime-400 focus:outline-none"
-                placeholder="$5,000"
-              />
-            </div>
+      <div className="p-4 space-y-4 max-w-lg mx-auto">
+        <div className="card p-5">
+          <label className="text-sm text-zinc-500 block mb-2">Bid Price</label>
+          <input
+            type="text"
+            value={bidInput}
+            onChange={(e) => setBidInput(e.target.value)}
+            className="w-full bg-surface-600 border border-surface-500/60 text-2xl font-semibold px-4 py-4 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-electric/50 focus:ring-2 focus:ring-electric/20"
+            placeholder="$5,000"
+            autoFocus
+          />
 
-            <div>
-              <label className="text-sm text-gray-400 block mb-2">Location</label>
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="w-full bg-gray-800 text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-lime-400 focus:outline-none"
-                placeholder="San Diego"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                onClick={calculateFee}
-                className="bg-lime-500 text-black py-3 rounded-lg font-semibold active:bg-lime-600 flex items-center justify-center gap-2"
-              >
-                <Calculator size={18} />
-                Calculate
-              </button>
-              <button
-                onClick={handleClear}
-                className="bg-gray-800 text-white py-3 rounded-lg font-semibold active:bg-gray-700 flex items-center justify-center gap-2"
-              >
-                <X size={18} />
-                Clear
-              </button>
-            </div>
-          </div>
+          {bidInput && (
+            <button
+              onClick={handleClear}
+              className="mt-3 text-electric font-medium text-sm"
+            >
+              Clear
+            </button>
+          )}
         </div>
 
         {error && (
-          <div className="bg-red-900/30 border border-red-800 rounded-lg p-4">
-            <div className="text-red-400 font-medium">{error}</div>
+          <div className="bg-status-danger/10 text-status-danger rounded-xl p-4 text-sm font-medium">
+            {error}
           </div>
         )}
 
         {result && !error && (
-          <div className="bg-gray-900 rounded-lg p-5">
-            <h2 className="text-lime-400 font-semibold text-lg mb-4">Results</h2>
-
-            <div className="space-y-3">
-              <div className="flex justify-between items-center pb-3 border-b border-gray-800">
-                <span className="text-gray-400">Bid Price:</span>
-                <span className="text-white font-semibold text-lg">
+          <div className="card p-5">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-500">Bid Price</span>
+                <span className="text-white font-semibold text-lg tabular-nums">
                   ${result.bid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
 
-              <div className="flex justify-between items-center pb-3 border-b border-gray-800">
-                <span className="text-gray-400">Buy Fee:</span>
-                <span className="text-white font-semibold text-lg">
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-500">Buy Fee</span>
+                <span className="text-white font-semibold text-lg tabular-nums">
                   ${result.fee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
 
-              <div className="flex justify-between items-center pb-3 border-b border-gray-800">
-                <span className="text-gray-400 font-semibold">Total Out-the-Door:</span>
-                <span className="text-lime-400 font-bold text-2xl">
+              <div className="h-px bg-surface-500/30" />
+
+              <div className="flex justify-between items-center">
+                <span className="text-white font-semibold">Total Due</span>
+                <span className="text-electric font-bold text-2xl tabular-nums">
                   ${result.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
 
-              <div className="pt-3 bg-gray-800 rounded-lg p-3">
-                <div className="text-xs text-gray-400 mb-1">Fee Bracket Used:</div>
-                <div className="text-gray-300 font-medium">
-                  ${result.range} → ${result.fee.toLocaleString()}
-                </div>
+              <div className="bg-surface-600 rounded-xl p-3 mt-2">
+                <div className="text-xs text-zinc-500">Fee bracket: {result.range}</div>
               </div>
-
-              {location && (
-                <div className="pt-2">
-                  <div className="text-xs text-gray-400">Location: {location}</div>
-                </div>
-              )}
             </div>
           </div>
         )}
 
         {recentCalculations.length > 0 && (
-          <div className="bg-gray-900 rounded-lg p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white font-semibold">Recent Calculations</h3>
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-surface-500/30">
+              <h3 className="font-semibold text-white">Recent</h3>
               <button
                 onClick={clearRecentCalculations}
-                className="text-red-400 hover:text-red-300 text-sm flex items-center gap-1"
+                className="text-status-danger text-sm flex items-center gap-1"
               >
                 <Trash2 size={14} />
                 Clear
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="divide-y divide-surface-500/30">
               {recentCalculations.map((calc, idx) => (
-                <div
+                <button
                   key={idx}
-                  className="bg-gray-800 rounded-lg p-3 cursor-pointer hover:bg-gray-750"
+                  className="w-full p-4 text-left active:bg-surface-600 transition-colors"
                   onClick={() => setBidInput(calc.bid.toString())}
                 >
                   <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <span className="text-white font-semibold">
-                          ${calc.bid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                        <span className="text-gray-500">+</span>
-                        <span className="text-gray-400">
-                          ${calc.fee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                        <span className="text-gray-500">=</span>
-                        <span className="text-lime-400 font-semibold">
-                          ${calc.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">{calc.timestamp}</div>
+                    <div>
+                      <span className="text-white font-medium tabular-nums">
+                        ${calc.bid.toLocaleString()}
+                      </span>
+                      <span className="text-zinc-600 mx-2">+</span>
+                      <span className="text-zinc-500 tabular-nums">
+                        ${calc.fee.toLocaleString()}
+                      </span>
                     </div>
+                    <span className="text-electric font-semibold tabular-nums">
+                      ${calc.total.toLocaleString()}
+                    </span>
                   </div>
-                </div>
+                  <div className="text-xs text-zinc-600 mt-1">{calc.timestamp}</div>
+                </button>
               ))}
             </div>
           </div>

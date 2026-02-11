@@ -1,16 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, ThumbsUp, HelpCircle, ThumbsDown, Trash2, ExternalLink } from 'lucide-react';
+import { Search, ExternalLink, ChevronRight, Check, Camera } from 'lucide-react';
 import type { InventoryItem, Status } from '../types/inventory';
 import { getAllItems, saveItem, deleteItem } from '../utils/db';
-import { getBuyFee } from '../utils/buyFee';
+import { getBuyFee, getTotalDue } from '../utils/buyFee';
 import { generateBuddyTag } from '../utils/buddyTag';
 
 export default function FloorScreen() {
   const [searchInput, setSearchInput] = useState('');
   const [item, setItem] = useState<InventoryItem | null>(null);
   const [matchingItems, setMatchingItems] = useState<InventoryItem[]>([]);
+  const [allResults, setAllResults] = useState<InventoryItem[]>([]); // Full result list for navigation
+  const [currentIndex, setCurrentIndex] = useState(0); // Current position in results
   const [loading, setLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [decided, setDecided] = useState<Status | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -24,6 +27,7 @@ export default function FloorScreen() {
     setNotFound(false);
     setItem(null);
     setMatchingItems([]);
+    setDecided(null); // Reset decision state for new search
 
     try {
       const allItems = await getAllItems();
@@ -36,40 +40,55 @@ export default function FloorScreen() {
 
       if (exactMatch) {
         setItem(exactMatch);
-        setNotFound(false);
+        setAllResults([exactMatch]);
+        setCurrentIndex(0);
       } else {
-        const matches = allItems.filter(i =>
-          i.title.toLowerCase().includes(query) ||
-          i.make.toLowerCase().includes(query) ||
-          i.model.toLowerCase().includes(query) ||
-          (i.year && i.year.toString().includes(query))
-        );
+        const matches = allItems.filter(i => {
+          const title = (i.title || '').toLowerCase();
+          const make = (i.make || '').toLowerCase();
+          const model = (i.model || '').toLowerCase();
+          const vin = (i.vin || '').toLowerCase();
+          const year = i.year ? i.year.toString() : '';
+          const note = (i.note || '').toLowerCase();
+
+          return title.includes(query) ||
+            make.includes(query) ||
+            model.includes(query) ||
+            vin.includes(query) ||
+            year.includes(query) ||
+            note.includes(query);
+        });
 
         if (matches.length === 1) {
           setItem(matches[0]);
-          setNotFound(false);
+          setAllResults(matches);
+          setCurrentIndex(0);
         } else if (matches.length > 1) {
-          setMatchingItems(matches);
-          setNotFound(false);
+          setAllResults(matches); // Store all for navigation
+          setMatchingItems(matches.slice(0, 20)); // Show first 20 for selection
         } else {
-          setItem(null);
-          setMatchingItems([]);
           setNotFound(true);
         }
       }
     } catch (error) {
       console.error('Search error:', error);
-      setItem(null);
-      setMatchingItems([]);
       setNotFound(true);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSelectItem = (selectedItem: InventoryItem) => {
+  const handleSelectItem = (selectedItem: InventoryItem, index?: number) => {
     setItem(selectedItem);
     setMatchingItems([]);
+    setDecided(null);
+    // Track position in the full results list
+    if (index !== undefined) {
+      setCurrentIndex(index);
+    } else {
+      const idx = allResults.findIndex(i => i.id === selectedItem.id);
+      setCurrentIndex(idx >= 0 ? idx : 0);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -90,13 +109,35 @@ export default function FloorScreen() {
       const updated = { ...item, status, buddyTag, updatedAt: Date.now() };
       await saveItem(updated);
       setItem(updated);
+      setDecided(status); // Show decision confirmation
     } catch (error) {
       console.error('Status update error:', error);
     }
   };
 
+  const handleNext = () => {
+    const nextIndex = currentIndex + 1;
+
+    // If there are more items in the results, go to the next one
+    if (nextIndex < allResults.length) {
+      setItem(allResults[nextIndex]);
+      setCurrentIndex(nextIndex);
+      setDecided(null);
+    } else {
+      // No more items - go back to search
+      setItem(null);
+      setMatchingItems([]);
+      setAllResults([]);
+      setCurrentIndex(0);
+      setSearchInput('');
+      setNotFound(false);
+      setDecided(null);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  };
+
   const handleDelete = async () => {
-    if (!item || !confirm('FY Couch?')) return;
+    if (!item || !confirm('Remove this item?')) return;
 
     try {
       await deleteItem(item.id);
@@ -108,97 +149,123 @@ export default function FloorScreen() {
     }
   };
 
-  const getStatusLabel = (status: Status) => {
+  const handleClear = () => {
+    setItem(null);
+    setMatchingItems([]);
+    setSearchInput('');
+    setNotFound(false);
+    setDecided(null);
+    inputRef.current?.focus();
+  };
+
+  const getStatusStyle = (status: Status) => {
     switch (status) {
       case 'interested':
-        return { text: 'Interested', color: 'text-lime-400' };
+        return { bg: 'bg-status-success', text: 'Interested' };
       case 'maybe':
-        return { text: 'Maybe', color: 'text-yellow-400' };
+        return { bg: 'bg-status-warning', text: 'Maybe' };
       case 'pass':
-        return { text: 'Pass', color: 'text-red-400' };
+        return { bg: 'bg-status-danger', text: 'Pass' };
       default:
-        return { text: 'Unreviewed', color: 'text-gray-400' };
+        return { bg: 'bg-zinc-600', text: 'Unreviewed' };
     }
   };
 
   const buyFee = item?.maxBid ? getBuyFee(item.maxBid) : null;
+  const totalDue = item?.maxBid ? getTotalDue(item.maxBid) : null;
 
   return (
-    <div className="min-h-screen bg-gray-950 pb-20 px-4">
-      <div className="max-w-2xl mx-auto pt-8">
-        <h1 className="text-2xl font-bold text-white mb-6">Floor Mode</h1>
+    <div className="min-h-screen bg-surface-900 pb-24">
+      {/* Header */}
+      <div className="px-6 pt-14 pb-6">
+        <h1 className="text-3xl font-bold text-white tracking-tight">Floor Mode</h1>
+        <p className="text-zinc-500 text-sm mt-1">Quick lookup for live bidding</p>
+      </div>
 
-        <div className="mb-6">
-          <div className="relative">
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Item #, Buddy Tag, or keyword..."
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              className="w-full bg-gray-900 text-white text-2xl px-6 py-4 rounded-lg border-2 border-gray-700 focus:border-lime-500 focus:outline-none font-bold"
-            />
-          </div>
+      {/* Search */}
+      <div className="px-6 pb-6">
+        <div className="flex gap-3">
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Item # or Buddy Tag"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            className="flex-1 bg-surface-700 border border-surface-500/60 rounded-xl py-4 px-5 text-xl font-semibold text-white placeholder-zinc-600 focus:outline-none focus:border-electric/50 focus:ring-2 focus:ring-electric/20"
+          />
           <button
             onClick={handleSearch}
             disabled={loading || !searchInput.trim()}
-            className="w-full mt-3 bg-lime-500 text-gray-950 py-4 rounded-lg font-semibold flex items-center justify-center gap-2 active:bg-lime-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary px-6 disabled:opacity-50"
           >
-            <Search size={20} />
-            {loading ? 'Searching...' : 'Search'}
+            <Search size={22} />
           </button>
         </div>
+      </div>
+
+      <div className="px-4">
+        {loading && (
+          <div className="text-center py-16 text-zinc-500">Searching...</div>
+        )}
 
         {notFound && (
-          <div className="bg-red-900/20 border border-red-800 rounded-lg p-6 text-center">
-            <div className="text-red-400 text-lg font-semibold">Item not found</div>
-            <div className="text-gray-400 text-sm mt-1">No match for "{searchInput}"</div>
+          <div className="card p-8 text-center">
+            <div className="text-status-danger font-semibold text-lg">Not Found</div>
+            <div className="text-zinc-500 text-sm mt-2">
+              No item matches "{searchInput}"
+            </div>
+            <button
+              onClick={handleClear}
+              className="mt-6 text-electric font-medium"
+            >
+              Clear
+            </button>
           </div>
         )}
 
         {matchingItems.length > 0 && (
-          <div className="space-y-2">
-            <div className="text-white text-sm mb-3">
-              Found {matchingItems.length} items - Select one:
+          <div className="space-y-3">
+            <div className="text-zinc-500 text-sm px-2 mb-4">
+              {allResults.length} matches found
             </div>
-            {matchingItems.map((matchItem) => (
+            {matchingItems.map((matchItem, idx) => (
               <button
                 key={matchItem.id}
-                onClick={() => handleSelectItem(matchItem)}
-                className="w-full bg-gray-900 border-2 border-gray-700 hover:border-lime-500 rounded-lg p-4 text-left transition-colors"
+                onClick={() => handleSelectItem(matchItem, idx)}
+                className="card-interactive w-full text-left p-4"
               >
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-4">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      {matchItem.itemNumber && (
-                        <div className="text-lime-400 font-bold">#{matchItem.itemNumber}</div>
-                      )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-electric font-bold">#{matchItem.itemNumber}</span>
                       {matchItem.buddyTag && (
-                        <div className="bg-lime-500/20 text-lime-400 px-2 py-0.5 rounded text-xs font-bold">
+                        <span className="text-xs bg-surface-600 text-zinc-500 px-2 py-0.5 rounded font-medium">
                           {matchItem.buddyTag}
-                        </div>
+                        </span>
                       )}
-                      <div className={`text-xs font-medium ml-auto ${getStatusLabel(matchItem.status).color}`}>
-                        {getStatusLabel(matchItem.status).text}
-                      </div>
                     </div>
-                    <div className="text-white font-medium mb-1">{matchItem.title}</div>
-                    <div className="text-gray-400 text-sm">
-                      {matchItem.year && `${matchItem.year} `}
-                      {matchItem.make} {matchItem.model}
+                    <div className="text-white font-medium text-sm mt-1 truncate">
+                      {matchItem.title}
                     </div>
-                    {matchItem.maxBid !== null && (
-                      <div className="text-lime-400 text-sm font-bold mt-2">
-                        Max Bid: ${matchItem.maxBid.toLocaleString()}
-                      </div>
-                    )}
+                    <div className="flex gap-2 mt-2">
+                      {matchItem.cachedComps && (
+                        <span className="text-electric font-medium text-sm">
+                          Comps: ${matchItem.cachedComps.avgPrice.toLocaleString()}
+                        </span>
+                      )}
+                      {matchItem.maxBid && (
+                        <span className="text-status-success font-semibold text-sm">
+                          Max: ${matchItem.maxBid.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {matchItem.photoUrl && (
                     <img
                       src={matchItem.photoUrl}
-                      alt={matchItem.title}
-                      className="w-16 h-16 object-cover rounded"
+                      alt=""
+                      className="w-14 h-14 object-cover rounded-lg"
                     />
                   )}
                 </div>
@@ -208,132 +275,235 @@ export default function FloorScreen() {
         )}
 
         {item && (
-          <div className="bg-gray-900 rounded-lg border-2 border-gray-700 overflow-hidden">
-            <div className="p-6">
-              <div className="flex items-start justify-between gap-4 mb-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    {item.itemNumber && (
-                      <div className="text-lime-400 font-bold text-2xl">#{item.itemNumber}</div>
-                    )}
-                    {item.buddyTag && (
-                      <div className="bg-lime-500/20 text-lime-400 px-3 py-1 rounded text-sm font-bold">
-                        {item.buddyTag}
-                      </div>
-                    )}
-                  </div>
-                  <div className={`text-sm font-medium ${getStatusLabel(item.status).color}`}>
-                    {getStatusLabel(item.status).text}
-                  </div>
-                </div>
-                {item.photoUrl && (
-                  <img
-                    src={item.photoUrl}
-                    alt={item.title}
-                    className="w-24 h-24 object-cover rounded"
-                  />
-                )}
+          <div className="space-y-4">
+            {/* Position indicator */}
+            {allResults.length > 1 && (
+              <div className="text-center text-sm text-zinc-500">
+                Item {currentIndex + 1} of {allResults.length}
               </div>
-
-              <h2 className="text-xl font-semibold text-white mb-4">{item.title}</h2>
-
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                {item.maxBid !== null && (
+            )}
+            <div className="card overflow-hidden">
+              <div className="p-5">
+                {/* Header */}
+                <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-gray-400 text-xs mb-1">Max Bid</div>
-                    <div className="text-lime-400 font-bold text-2xl">
-                      ${item.maxBid.toLocaleString()}
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-electric font-bold text-3xl tabular-nums">#{item.itemNumber}</span>
+                      {item.buddyTag && (
+                        <span className="text-sm bg-surface-600 text-zinc-400 px-3 py-1 rounded-lg font-semibold">
+                          {item.buddyTag}
+                        </span>
+                      )}
+                    </div>
+                    <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full ${getStatusStyle(item.status).bg} text-white text-sm font-medium`}>
+                      {getStatusStyle(item.status).text}
+                    </div>
+                  </div>
+                  {item.photoUrl && (
+                    <img
+                      src={item.photoUrl}
+                      alt={item.title}
+                      className="w-20 h-20 object-cover rounded-xl"
+                    />
+                  )}
+                </div>
+
+                <h2 className="text-lg font-semibold text-white mt-5 mb-5">
+                  {item.title}
+                </h2>
+
+                {/* Market Comps */}
+                {item.cachedComps && (
+                  <div className="bg-electric/10 border border-electric/30 rounded-xl p-4 mb-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-electric/80 text-xs font-medium uppercase tracking-wider">Market Comps ({item.cachedComps.count})</span>
+                      <span className="text-electric font-bold text-2xl tabular-nums">
+                        ${item.cachedComps.avgPrice.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="text-xs text-electric/60 mt-1">
+                      Range: ${item.cachedComps.lowPrice.toLocaleString()} – ${item.cachedComps.highPrice.toLocaleString()}
                     </div>
                   </div>
                 )}
-                {buyFee !== null && (
-                  <div>
-                    <div className="text-gray-400 text-xs mb-1">Buy Fee</div>
-                    <div className="text-white font-bold text-2xl">${buyFee}</div>
+
+                {/* AI Estimated Value (fallback if no comps) */}
+                {!item.cachedComps && item.cachedEstimate && (
+                  <div className="bg-status-info/10 border border-status-info/30 rounded-xl p-4 mb-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-status-info/80 text-xs font-medium uppercase tracking-wider">Est. Value</span>
+                      <span className="text-status-info font-bold text-xl tabular-nums">
+                        ${item.cachedEstimate.mid.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="text-xs text-status-info/60 mt-1">
+                      Range: ${item.cachedEstimate.low.toLocaleString()} – ${item.cachedEstimate.high.toLocaleString()}
+                    </div>
                   </div>
+                )}
+
+                {/* Bid Info */}
+                {item.maxBid !== null && (
+                  <div className="bg-surface-600 rounded-xl p-4 mb-4">
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <div className="text-zinc-500 text-xs uppercase tracking-wider mb-1">Max Bid</div>
+                        <div className="text-status-success font-bold text-2xl tabular-nums">
+                          ${item.maxBid.toLocaleString()}
+                        </div>
+                      </div>
+                      {buyFee !== null && (
+                        <div>
+                          <div className="text-zinc-500 text-xs uppercase tracking-wider mb-1">Buy Fee</div>
+                          <div className="text-white font-bold text-2xl tabular-nums">
+                            ${buyFee.toLocaleString()}
+                          </div>
+                        </div>
+                      )}
+                      {totalDue !== null && (
+                        <div>
+                          <div className="text-zinc-500 text-xs uppercase tracking-wider mb-1">Total</div>
+                          <div className="text-electric font-bold text-2xl tabular-nums">
+                            ${totalDue.toLocaleString()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Details */}
+                <div className="space-y-2 text-sm">
+                  {item.docs && (
+                    <div className="flex justify-between py-2 border-b border-surface-500/30">
+                      <span className="text-zinc-500">Docs</span>
+                      <span className="text-status-success font-medium">{item.docs}</span>
+                    </div>
+                  )}
+                  {item.crScore !== null && (
+                    <div className="flex justify-between py-2 border-b border-surface-500/30">
+                      <span className="text-zinc-500">CR Score</span>
+                      <span className="text-white font-medium">{item.crScore}</span>
+                    </div>
+                  )}
+                  {item.milesHours && (
+                    <div className="flex justify-between py-2 border-b border-surface-500/30">
+                      <span className="text-zinc-500">Miles/Hours</span>
+                      <span className="text-white">{item.milesHours}</span>
+                    </div>
+                  )}
+                  {item.note && (
+                    <div className="pt-3">
+                      <span className="text-zinc-500">Note: </span>
+                      <span className="text-zinc-300">{item.note}</span>
+                    </div>
+                  )}
+                </div>
+
+                {item.sourceUrl && (
+                  <a
+                    href={item.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-5 inline-flex items-center gap-2 text-electric text-sm font-medium"
+                  >
+                    <ExternalLink size={14} />
+                    View Source
+                  </a>
                 )}
               </div>
 
-              <div className="space-y-3 text-sm">
-                {item.docs && (
-                  <div className="flex gap-2">
-                    <span className="text-gray-400 min-w-20">Docs:</span>
-                    <span className="text-lime-400 font-medium">{item.docs}</span>
+              {/* Status buttons */}
+              {!decided ? (
+                <div className="grid grid-cols-3 border-t border-surface-500/30">
+                  <button
+                    onClick={() => handleStatusChange('interested')}
+                    className={`py-5 text-sm font-semibold transition-colors ${
+                      item.status === 'interested'
+                        ? 'bg-status-success/10 text-status-success'
+                        : 'text-zinc-400 active:bg-status-success/10'
+                    }`}
+                  >
+                    Interested
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange('maybe')}
+                    className={`py-5 text-sm font-semibold transition-colors border-l border-surface-500/30 ${
+                      item.status === 'maybe'
+                        ? 'bg-status-warning/10 text-status-warning'
+                        : 'text-zinc-400 active:bg-status-warning/10'
+                    }`}
+                  >
+                    Maybe
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange('pass')}
+                    className={`py-5 text-sm font-semibold transition-colors border-l border-surface-500/30 ${
+                      item.status === 'pass'
+                        ? 'bg-status-danger/10 text-status-danger'
+                        : 'text-zinc-400 active:bg-status-danger/10'
+                    }`}
+                  >
+                    Pass
+                  </button>
+                </div>
+              ) : (
+                /* Decision made - show confirmation + Next button */
+                <div className="border-t border-surface-500/30">
+                  <div className={`flex items-center justify-center gap-2 py-3 text-sm font-medium ${
+                    decided === 'interested' ? 'bg-status-success/10 text-status-success' :
+                    decided === 'maybe' ? 'bg-status-warning/10 text-status-warning' :
+                    'bg-status-danger/10 text-status-danger'
+                  }`}>
+                    <Check size={16} />
+                    Marked as {decided.charAt(0).toUpperCase() + decided.slice(1)}
                   </div>
-                )}
-                {item.crScore !== null && (
-                  <div className="flex gap-2">
-                    <span className="text-gray-400 min-w-20">CR Score:</span>
-                    <span className="text-white font-medium">{item.crScore}</span>
-                  </div>
-                )}
-                {item.milesHours && (
-                  <div className="flex gap-2">
-                    <span className="text-gray-400 min-w-20">Miles/Hours:</span>
-                    <span className="text-white">{item.milesHours}</span>
-                  </div>
-                )}
-                {item.note && (
-                  <div className="flex gap-2">
-                    <span className="text-gray-400 min-w-20">Note:</span>
-                    <span className="text-white">{item.note}</span>
-                  </div>
-                )}
-              </div>
-
-              {item.sourceUrl && (
-                <a
-                  href={item.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-4 inline-flex items-center gap-2 text-lime-400 text-sm hover:text-lime-300"
-                >
-                  <ExternalLink size={16} />
-                  View Source
-                </a>
+                  <button
+                    onClick={handleNext}
+                    className="w-full py-5 bg-electric text-surface-900 font-bold text-lg flex items-center justify-center gap-2 active:opacity-80"
+                  >
+                    {currentIndex + 1 < allResults.length ? (
+                      <>
+                        Next Item
+                        <span className="text-sm font-medium opacity-70">
+                          ({currentIndex + 2} of {allResults.length})
+                        </span>
+                        <ChevronRight size={22} />
+                      </>
+                    ) : (
+                      <>
+                        Done
+                        <ChevronRight size={22} />
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
             </div>
 
-            <div className="flex border-t border-gray-700">
+            {!decided && (
               <button
-                onClick={() => handleStatusChange('interested')}
-                className={`flex-1 py-4 flex items-center justify-center gap-2 transition-colors ${
-                  item.status === 'interested'
-                    ? 'bg-lime-500/20 text-lime-400'
-                    : 'text-gray-400'
-                }`}
+                onClick={handleClear}
+                className="w-full btn-secondary"
               >
-                <ThumbsUp size={20} />
-                <span className="text-sm font-medium">Interested</span>
+                Search Another Item
               </button>
-              <div className="w-px bg-gray-700" />
-              <button
-                onClick={() => handleStatusChange('maybe')}
-                className={`flex-1 py-4 flex items-center justify-center gap-2 transition-colors ${
-                  item.status === 'maybe' ? 'bg-yellow-500/20 text-yellow-400' : 'text-gray-400'
-                }`}
-              >
-                <HelpCircle size={20} />
-                <span className="text-sm font-medium">Maybe</span>
-              </button>
-              <div className="w-px bg-gray-700" />
-              <button
-                onClick={() => handleStatusChange('pass')}
-                className={`flex-1 py-4 flex items-center justify-center gap-2 transition-colors ${
-                  item.status === 'pass' ? 'bg-red-500/20 text-red-400' : 'text-gray-400'
-                }`}
-              >
-                <ThumbsDown size={20} />
-                <span className="text-sm font-medium">Pass</span>
-              </button>
-              <div className="w-px bg-gray-700" />
-              <button
-                onClick={handleDelete}
-                className="px-6 py-4 flex items-center justify-center text-red-400"
-                title="FY Couch"
-              >
-                <Trash2 size={20} />
-              </button>
+            )}
+          </div>
+        )}
+
+        {!loading && !notFound && !item && matchingItems.length === 0 && (
+          <div className="text-center py-16">
+            <div className="text-5xl mb-6 opacity-50">⚡</div>
+            <div className="text-zinc-400 font-medium">
+              Enter an item number or buddy tag
+            </div>
+            <div className="text-zinc-600 text-sm mt-2">
+              Quick lookups for live auction bidding
+            </div>
+            <div className="mt-6 flex items-center justify-center gap-2 text-zinc-500 text-sm">
+              <Camera size={16} />
+              <span>Or use <span className="text-electric">Scan</span> tab to photograph tag</span>
             </div>
           </div>
         )}

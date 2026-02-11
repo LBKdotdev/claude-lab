@@ -1,61 +1,91 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import BottomNav from './components/BottomNav';
-import ImportScreen from './screens/ImportScreen';
-import AllListingsScreen from './screens/AllListingsScreen';
+import HomeScreen from './screens/HomeScreen';
 import ShortlistScreen from './screens/ShortlistScreen';
 import FloorScreen from './screens/FloorScreen';
+import ScanScreen from './screens/ScanScreen';
 import ItemDetailScreen from './screens/ItemDetailScreen';
-import InventoryScreen from './screens/InventoryScreen';
 import BuyFeeCalculatorScreen from './screens/BuyFeeCalculatorScreen';
-import KittyCompsScreen from './screens/KittyCompsScreen';
-import AuctionDataScreen from './screens/AuctionDataScreen';
-import { initDB } from './utils/db';
+import CompsScreen from './screens/CompsScreen';
+import AllListingsScreen from './screens/AllListingsScreen';
+import { initDB, getAllItems } from './utils/db';
 import demoListings from './data/demoListings.json';
+
+// Clear old comps cache versions on startup
+function clearOldCompsCache() {
+  try {
+    const keys = Object.keys(localStorage);
+    // Remove old cache versions (v1, v2, multi-source-comps-cache)
+    const oldKeys = keys.filter(k =>
+      k.startsWith('comps-v1') ||
+      k.startsWith('comps-v2') ||
+      k.startsWith('multi-source-comps-cache')
+    );
+    oldKeys.forEach(k => localStorage.removeItem(k));
+    if (oldKeys.length > 0) {
+      console.log('Cleared', oldKeys.length, 'old cache entries');
+    }
+  } catch (e) {
+    // Ignore
+  }
+}
 
 const STORAGE_KEY = 'lbk_listings';
 
 function App() {
-  const [currentTab, setCurrentTab] = useState('import');
+  const [currentTab, setCurrentTab] = useState('home');
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [showInventory, setShowInventory] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
-  const [showKittyComps, setShowKittyComps] = useState(false);
-  const [showAuctionData, setShowAuctionData] = useState(false);
-  const [items, setItems] = useState<any[]>([]);
+  const [showComps, setShowComps] = useState(false);
+  const [showAllListings, setShowAllListings] = useState(false);
+  const [totalItems, setTotalItems] = useState(0);
+  const [shortlistCount, setShortlistCount] = useState(0);
   const [lastImportCount, setLastImportCount] = useState(0);
   const [lastImportTime, setLastImportTime] = useState('');
 
-  useEffect(() => {
-    initDB();
-
-    const storedItems = localStorage.getItem(STORAGE_KEY);
-    const storedCount = localStorage.getItem('lbk_lastImportCount');
-    const storedTime = localStorage.getItem('lbk_lastImportTime');
-
-    if (storedItems) {
-      try {
-        setItems(JSON.parse(storedItems));
-      } catch (e) {
-        console.error('Error parsing stored items:', e);
-      }
-    } else {
-      setItems(demoListings);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(demoListings));
-      setLastImportCount(demoListings.length);
-      const timestamp = 'Demo data loaded';
-      setLastImportTime(timestamp);
-      localStorage.setItem('lbk_lastImportCount', String(demoListings.length));
-      localStorage.setItem('lbk_lastImportTime', timestamp);
-    }
-
-    if (storedCount) {
-      setLastImportCount(parseInt(storedCount, 10) || 0);
-    }
-
-    if (storedTime) {
-      setLastImportTime(storedTime);
+  const refreshCounts = useCallback(async () => {
+    try {
+      const items = await getAllItems();
+      setTotalItems(items.length);
+      setShortlistCount(
+        items.filter(item => item.status === 'interested' || item.status === 'maybe').length
+      );
+    } catch (error) {
+      console.error('Error refreshing counts:', error);
     }
   }, []);
+
+  useEffect(() => {
+    const init = async () => {
+      // Clear old cache versions first
+      clearOldCompsCache();
+
+      await initDB();
+
+      const storedCount = localStorage.getItem('lbk_lastImportCount');
+      const storedTime = localStorage.getItem('lbk_lastImportTime');
+
+      if (storedCount) {
+        setLastImportCount(parseInt(storedCount, 10) || 0);
+      }
+
+      if (storedTime) {
+        setLastImportTime(storedTime);
+      }
+
+      // Load counts from IndexedDB
+      await refreshCounts();
+    };
+
+    init();
+  }, [refreshCounts]);
+
+  // Refresh counts when returning to home tab
+  useEffect(() => {
+    if (currentTab === 'home') {
+      refreshCounts();
+    }
+  }, [currentTab, refreshCounts]);
 
   const handleItemClick = (id: string) => {
     setSelectedItemId(id);
@@ -63,102 +93,71 @@ function App() {
 
   const handleCloseDetail = () => {
     setSelectedItemId(null);
+    // Refresh counts after closing detail (status may have changed)
+    refreshCounts();
   };
 
   const handleImportSuccess = (importedItems: any[], count: number, timestamp: string) => {
-    setItems(importedItems);
+    setTotalItems(importedItems.length);
     setLastImportCount(count);
     setLastImportTime(timestamp);
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(importedItems));
     localStorage.setItem('lbk_lastImportCount', String(count));
     localStorage.setItem('lbk_lastImportTime', timestamp);
+
+    // Refresh shortlist count from DB
+    refreshCounts();
   };
 
-  const handleResetDemoData = () => {
-    localStorage.removeItem(STORAGE_KEY);
-    setItems(demoListings);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(demoListings));
-    setLastImportCount(demoListings.length);
-    const timestamp = 'Demo data reset';
-    setLastImportTime(timestamp);
-    localStorage.setItem('lbk_lastImportCount', String(demoListings.length));
-    localStorage.setItem('lbk_lastImportTime', timestamp);
-  };
-
-  const handleViewInventory = () => {
-    setShowInventory(true);
-  };
-
-  const handleBackFromInventory = () => {
-    setShowInventory(false);
-  };
-
-  const handleOpenCalculator = () => {
-    setShowCalculator(true);
-  };
-
-  const handleBackFromCalculator = () => {
-    setShowCalculator(false);
-  };
-
-  const handleOpenKittyComps = () => {
-    setShowKittyComps(true);
-  };
-
-  const handleBackFromKittyComps = () => {
-    setShowKittyComps(false);
-  };
-
-  const handleOpenAuctionData = () => {
-    setShowAuctionData(true);
-  };
-
-  const handleBackFromAuctionData = () => {
-    setShowAuctionData(false);
-  };
-
-  if (showAuctionData) {
-    return <AuctionDataScreen onBack={handleBackFromAuctionData} />;
-  }
-
-  if (showKittyComps) {
-    return <KittyCompsScreen onBack={handleBackFromKittyComps} />;
+  if (showComps) {
+    return <CompsScreen onBack={() => setShowComps(false)} />;
   }
 
   if (showCalculator) {
-    return <BuyFeeCalculatorScreen onBack={handleBackFromCalculator} />;
+    return <BuyFeeCalculatorScreen onBack={() => setShowCalculator(false)} />;
   }
 
-  if (showInventory) {
+  if (showAllListings) {
     return (
-      <InventoryScreen
-        items={items}
-        lastImportCount={lastImportCount}
-        lastImportTime={lastImportTime}
-        onBack={handleBackFromInventory}
-      />
+      <>
+        <AllListingsScreen
+          onBack={() => setShowAllListings(false)}
+          onSelectItem={(id) => {
+            setSelectedItemId(id);
+          }}
+        />
+        {selectedItemId && (
+          <ItemDetailScreen
+            itemId={selectedItemId}
+            onClose={() => {
+              setSelectedItemId(null);
+              refreshCounts();
+            }}
+          />
+        )}
+      </>
     );
   }
 
   return (
     <>
-      <div className="min-h-screen bg-gray-950">
-        {currentTab === 'import' && (
-          <ImportScreen
+      <div className="min-h-screen bg-surface-900">
+        {currentTab === 'home' && (
+          <HomeScreen
             onImportSuccess={handleImportSuccess}
-            onViewInventory={handleViewInventory}
-            onOpenCalculator={handleOpenCalculator}
-            onOpenKittyComps={handleOpenKittyComps}
-            onOpenAuctionData={handleOpenAuctionData}
-            onResetDemoData={handleResetDemoData}
+            onOpenCalculator={() => setShowCalculator(true)}
+            onOpenComps={() => setShowComps(true)}
+            onOpenAllListings={() => setShowAllListings(true)}
             lastImportCount={lastImportCount}
             lastImportTime={lastImportTime}
+            totalItems={totalItems}
+            shortlistCount={shortlistCount}
           />
         )}
-        {currentTab === 'all' && <AllListingsScreen onItemClick={handleItemClick} />}
         {currentTab === 'shortlist' && <ShortlistScreen onItemClick={handleItemClick} />}
         {currentTab === 'floor' && <FloorScreen />}
+        {currentTab === 'scan' && <ScanScreen onSelectItem={handleItemClick} />}
       </div>
 
       <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />

@@ -1,4 +1,4 @@
-import { Upload, List, Star, Gauge } from 'lucide-react';
+import { Home, Star, Zap, Camera } from 'lucide-react';
 
 interface BottomNavProps {
   currentTab: string;
@@ -7,14 +7,14 @@ interface BottomNavProps {
 
 export default function BottomNav({ currentTab, onTabChange }: BottomNavProps) {
   const tabs = [
-    { id: 'import', label: 'Import', icon: Upload },
-    { id: 'all', label: 'All', icon: List },
+    { id: 'home', label: 'Home', icon: Home },
     { id: 'shortlist', label: 'Shortlist', icon: Star },
-    { id: 'floor', label: 'Floor', icon: Gauge },
+    { id: 'scan', label: 'Scan', icon: Camera },
+    { id: 'floor', label: 'Floor', icon: Zap },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 safe-area-bottom">
+    <nav className="fixed bottom-0 left-0 right-0 bg-surface-900/90 backdrop-blur-xl border-t border-surface-500/30 safe-area-bottom">
       <div className="flex justify-around items-center h-16">
         {tabs.map(tab => {
           const Icon = tab.icon;
@@ -24,12 +24,19 @@ export default function BottomNav({ currentTab, onTabChange }: BottomNavProps) {
             <button
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
-              className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
-                isActive ? 'text-lime-400' : 'text-gray-400'
+              className={`flex flex-col items-center justify-center flex-1 h-full transition-all duration-300 ${
+                isActive ? 'text-electric' : 'text-zinc-600 hover:text-zinc-400'
               }`}
             >
-              <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
-              <span className="text-xs mt-1 font-medium">{tab.label}</span>
+              <div className={`relative ${isActive ? 'glow-sm' : ''}`}>
+                <Icon size={22} strokeWidth={isActive ? 2 : 1.5} />
+              </div>
+              <span className={`text-xs mt-1.5 font-medium tracking-wide ${isActive ? 'text-electric' : ''}`}>
+                {tab.label}
+              </span>
+              {isActive && (
+                <div className="absolute bottom-3 w-1 h-1 rounded-full bg-electric" />
+              )}
             </button>
           );
         })}
