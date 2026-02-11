@@ -1,8 +1,9 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 interface EbayComp {
@@ -14,10 +15,66 @@ interface EbayComp {
   imageUrl: string | null;
 }
 
-serve(async (req) => {
-  // Handle CORS preflight
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function parseEbayResults(html: string): EbayComp[] {
+  const comps: EbayComp[] = [];
+  const itemPattern = /<li[^>]*class="[^"]*s-item[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
+  const items = html.match(itemPattern) || [];
+
+  for (const item of items) {
+    try {
+      if (item.includes('SPONSORED')) continue;
+
+      const titleMatch = item.match(/<span[^>]*role="heading"[^>]*>([^<]+)<\/span>/i) ||
+                         item.match(/class="s-item__title"[^>]*>[\s\S]*?<span[^>]*>([^<]+)<\/span>/i);
+      if (!titleMatch) continue;
+      const title = decodeHtmlEntities(titleMatch[1].trim());
+      if (title.toLowerCase().includes('shop on ebay') || title === 'New Listing') continue;
+
+      const priceMatch = item.match(/class="s-item__price"[^>]*>[\s\S]*?\$([0-9,]+\.?\d*)/i) ||
+                         item.match(/\$([0-9,]+\.?\d*)/);
+      if (!priceMatch) continue;
+      const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+      if (isNaN(price) || price <= 0) continue;
+
+      const urlMatch = item.match(/href="(https:\/\/www\.ebay\.com\/itm\/[^"]+)"/i);
+      const imageMatch = item.match(/src="(https:\/\/i\.ebayimg\.com\/[^"]+)"/i);
+      const dateMatch = item.match(/Sold\s+([A-Za-z]+\s+\d+)/i);
+      const conditionMatch = item.match(/class="SECONDARY_INFO"[^>]*>([^<]+)<\/span>/i);
+
+      comps.push({
+        title,
+        price,
+        soldDate: dateMatch ? dateMatch[1].trim() : 'Recently',
+        condition: conditionMatch ? conditionMatch[1].trim() : 'Used',
+        url: urlMatch ? urlMatch[1].split('?')[0] : '',
+        imageUrl: imageMatch ? imageMatch[1] : null,
+      });
+    } catch (e) {
+      console.error("Parse error:", e);
+    }
+  }
+
+  const seen = new Set<string>();
+  return comps.filter(comp => {
+    if (!comp.url || seen.has(comp.url)) return false;
+    seen.add(comp.url);
+    return true;
+  }).slice(0, 20);
+}
+
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
@@ -31,10 +88,6 @@ serve(async (req) => {
       );
     }
 
-    // Build eBay sold listings URL
-    // LH_Complete=1 = Completed listings
-    // LH_Sold=1 = Sold listings only
-    // _sop=13 = Sort by end date (recent first)
     const encodedQuery = encodeURIComponent(query);
     const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodedQuery}&LH_Complete=1&LH_Sold=1&_sop=13&_ipg=60`;
 
@@ -56,115 +109,15 @@ serve(async (req) => {
     const comps = parseEbayResults(html);
 
     return new Response(
-      JSON.stringify({
-        comps,
-        query,
-        count: comps.length,
-        source: "ebay_sold",
-        timestamp: new Date().toISOString(),
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ comps, query, count: comps.length, source: "ebay_sold", timestamp: new Date().toISOString() }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-
   } catch (error) {
     console.error("Error:", error);
+    const errMsg = error instanceof Error ? error.message : "Failed to fetch comps";
     return new Response(
-      JSON.stringify({ error: error.message || "Failed to fetch comps" }),
+      JSON.stringify({ error: errMsg }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
-
-function parseEbayResults(html: string): EbayComp[] {
-  const comps: EbayComp[] = [];
-
-  // Find all listing items using regex patterns
-  // eBay uses s-item class for search results
-  const itemPattern = /<li[^>]*class="[^"]*s-item[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
-  const items = html.match(itemPattern) || [];
-
-  for (const item of items) {
-    try {
-      // Skip promotional items
-      if (item.includes('s-item__pl-on-bottom') || item.includes('SPONSORED')) {
-        continue;
-      }
-
-      // Extract title
-      const titleMatch = item.match(/<span[^>]*role="heading"[^>]*>([^<]+)<\/span>/i) ||
-                         item.match(/<h3[^>]*class="[^"]*s-item__title[^"]*"[^>]*>([^<]+)<\/h3>/i) ||
-                         item.match(/class="s-item__title"[^>]*>[\s\S]*?<span[^>]*>([^<]+)<\/span>/i);
-
-      if (!titleMatch) continue;
-      const title = decodeHtmlEntities(titleMatch[1].trim());
-
-      // Skip "Shop on eBay" placeholder items
-      if (title.toLowerCase().includes('shop on ebay') || title === 'New Listing') {
-        continue;
-      }
-
-      // Extract price - look for sold price specifically
-      const priceMatch = item.match(/class="s-item__price"[^>]*>[\s\S]*?\$([0-9,]+\.?\d*)/i) ||
-                         item.match(/\$([0-9,]+\.?\d*)/);
-
-      if (!priceMatch) continue;
-      const price = parseFloat(priceMatch[1].replace(/,/g, ''));
-
-      if (isNaN(price) || price <= 0) continue;
-
-      // Extract URL
-      const urlMatch = item.match(/href="(https:\/\/www\.ebay\.com\/itm\/[^"]+)"/i);
-      const url = urlMatch ? urlMatch[1].split('?')[0] : '';
-
-      // Extract image
-      const imageMatch = item.match(/src="(https:\/\/i\.ebayimg\.com\/[^"]+)"/i);
-      const imageUrl = imageMatch ? imageMatch[1] : null;
-
-      // Extract sold date
-      const dateMatch = item.match(/class="s-item__ended-date[^"]*"[^>]*>([^<]+)<\/span>/i) ||
-                        item.match(/class="s-item__endedDate[^"]*"[^>]*>([^<]+)<\/span>/i) ||
-                        item.match(/Sold\s+([A-Za-z]+\s+\d+)/i);
-      const soldDate = dateMatch ? dateMatch[1].trim() : 'Recently';
-
-      // Extract condition
-      const conditionMatch = item.match(/class="SECONDARY_INFO"[^>]*>([^<]+)<\/span>/i) ||
-                             item.match(/class="s-item__subtitle"[^>]*>([^<]+)<\/span>/i);
-      const condition = conditionMatch ? conditionMatch[1].trim() : 'Used';
-
-      comps.push({
-        title,
-        price,
-        soldDate,
-        condition,
-        url,
-        imageUrl,
-      });
-
-    } catch (e) {
-      // Skip items that fail to parse
-      console.error("Parse error for item:", e);
-    }
-  }
-
-  // Deduplicate by URL
-  const seen = new Set<string>();
-  const uniqueComps = comps.filter(comp => {
-    if (!comp.url || seen.has(comp.url)) return false;
-    seen.add(comp.url);
-    return true;
-  });
-
-  return uniqueComps.slice(0, 20); // Return top 20
-}
-
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ');
-}
